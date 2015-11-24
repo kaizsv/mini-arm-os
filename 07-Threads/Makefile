@@ -9,7 +9,10 @@ CFLAGS = -fno-common -ffreestanding -O0 -std=gnu99 \
 TARGET = os.bin
 all: $(TARGET)
 
-$(TARGET): os.c startup.c malloc.c threads.c
+fib.o: fib.s
+	$(CC) -c $(CFLAGS) -o $@ $<
+
+$(TARGET): os.c startup.c malloc.c threads.c fib.o support.c
 	$(CC) $(CFLAGS) $^ -o os.elf
 	$(CROSS_COMPILE)objcopy -Obinary os.elf os.bin
 	$(CROSS_COMPILE)objdump -S os.elf > os.list
@@ -21,4 +24,4 @@ qemu: $(TARGET)
 	qemu-system-arm -M stm32-p103 -nographic -kernel os.bin
 
 clean:
-	rm -f *.o *.elf *.bin *.list
+	rm -f *.o *.elf *.bin *.list *.c~ *.h~ *.s~

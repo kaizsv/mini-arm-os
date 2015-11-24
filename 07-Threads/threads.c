@@ -50,6 +50,13 @@ void systick_handler()
 	*SCB_ICSR |= SCB_ICSR_PENDSVSET;
 }
 
+unsigned int thread_get_userdata()
+{
+	uint32_t *stack;
+	stack = tasks[1].stack;
+	return (unsigned int) stack[9];
+}
+
 void thread_start()
 {
 	lastTask = 0;

@@ -2,12 +2,22 @@
 #include <stdint.h>
 #include "reg.h"
 #include "threads.h"
+#include "support.h"
+
+#define MAX_INPUT 50
 
 /* USART TXE Flag
  * This flag is cleared when data is written to USARTx_DR and
  * set when that data is transferred to the TDR
  */
 #define USART_FLAG_TXE	((uint16_t) 0x0080)
+
+/* USART RXNE Flag */
+#define USART_FLAG_RXNE ((uint16_t) 0x0020)
+
+extern int fibonacci(unsigned int x);
+void command_detect(char *str);
+int lock = 0;
 
 void usart_init(void)
 {
@@ -27,6 +37,14 @@ void usart_init(void)
 	*(USART2_CR1) |= 0x2000;
 }
 
+void print_char(const char *str) 
+{
+	if (*str) {
+		while (!(*(USART2_SR) & USART_FLAG_TXE));
+		*(USART2_DR) = (*str & 0xFF);
+	}
+}
+
 void print_str(const char *str)
 {
 	while (*str) {
@@ -36,34 +54,75 @@ void print_str(const char *str)
 	}
 }
 
-static void delay(volatile int count)
+char get_char(void)
 {
-	count *= 50000;
-	while (count--);
+	while (!(*(USART2_SR) & USART_FLAG_RXNE));
+	return *(USART2_DR);
 }
 
-static void busy_loop(void *str)
+void fib()
 {
+	while (!lock);
+	char num[MAX_INPUT];
+	int fib_result;
+	fib_result = fibonacci(thread_get_userdata());
+	itoa(fib_result, num);
+	print_str(num);
+	print_char("\n");
+	lock = 0;
+}
+
+void shell_input(char *buffer)
+{
+	int index = 0;
 	while (1) {
-		print_str(str);
-		print_str(": Running...\n");
-		delay(1000);
+		buffer[index] = get_char();
+
+		if (buffer[index] == 13) {
+			print_char("\0");
+			buffer[index] = '\0';
+			command_detect(buffer);
+			break;
+		} else if (buffer[index] == 8 || buffer[index] == 127) {
+			if (index != 0) {
+				print_char("\b");
+				print_char(" ");
+				print_char("\b");
+				index--;
+			}
+		} else {
+			print_char(&buffer[index++]);
+		}
+		if (index == MAX_INPUT)
+			index--;
 	}
 }
 
-void test1(void *userdata)
+void command_detect(char *str)
 {
-	busy_loop(userdata);
+	char fib_num[MAX_INPUT];
+	unsigned int number;
+	if (strcmp("fibonacci", str)) {
+		print_str("\nenter fib number...: ");
+		shell_input(fib_num);
+		number = atoi(fib_num);
+		if (thread_create((void *) fib, (void *) (number)) == -1)
+			print_str("Thread 1 creation failed\r\n");
+		lock = 1;
+	}
 }
 
-void test2(void *userdata)
+void shell(void *userdata)
 {
-	busy_loop(userdata);
-}
+	char buffer[MAX_INPUT];
+	while (1) {
+		while (lock);
+		print_str("nobody@mini-arm-os:");
 
-void test3(void *userdata)
-{
-	busy_loop(userdata);
+		shell_input(buffer);
+
+		print_char("\n");
+	}
 }
 
 /* 72MHz */
@@ -74,18 +133,12 @@ void test3(void *userdata)
 
 int main(void)
 {
-	const char *str1 = "Task1", *str2 = "Task2", *str3 = "Task3";
+	const char *str = "task_shell";
 
 	usart_init();
 
-	if (thread_create(test1, (void *) str1) == -1)
+	if (thread_create(shell, (void *) str) == -1)
 		print_str("Thread 1 creation failed\r\n");
-
-	if (thread_create(test2, (void *) str2) == -1)
-		print_str("Thread 2 creation failed\r\n");
-
-	if (thread_create(test3, (void *) str3) == -1)
-		print_str("Thread 3 creation failed\r\n");
 
 	/* SysTick configuration */
 	*SYSTICK_LOAD = (CPU_CLOCK_HZ / TICK_RATE_HZ) - 1UL;
